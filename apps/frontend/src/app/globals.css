@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Finance‑oriented light theme */
+    --background: 0 0% 100%; /* white */
+    --foreground: 222 47% 11%; /* near‑black */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 152 76% 35%; /* emerald 600 */
+    --primary-foreground: 0 0% 100%; /* white */
+    --secondary: 210 28% 97%; /* slate-50 */
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 28% 96%; /* subtle panels */
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 55%; /* red 500 */
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%; /* slate‑200 */
+    --input: 214 32% 91%;
+    --ring: 152 76% 35%;
+    --radius: 0.5rem;
+
+    /* Finance semantic tokens */
+    --gain: 152 76% 35%;        /* emerald 600 */
+    --gain-soft: 152 76% 90%;   /* tint */
+    --loss: 0 84% 55%;          /* red 500 */
+    --loss-soft: 0 84% 95%;
+    --neutral-soft: 210 28% 97%;
+  }
+
+  .dark {
+    /* Finance‑oriented dark theme (slate/navy with emerald accents) */
+    --background: 222 47% 8%;   /* slate‑900 */
+    --foreground: 210 40% 96%;  /* slate‑100 */
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 152 76% 40%;     /* emerald 500 */
+    --primary-foreground: 222 47% 10%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 63% 40%;
+    --destructive-foreground: 210 40% 96%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 152 76% 40%;
+
+    --gain: 152 76% 45%;
+    --gain-soft: 152 76% 14%;
+    --loss: 0 84% 60%;
+    --loss-soft: 0 84% 20%;
+    --neutral-soft: 222 12% 16%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* subtle gradient strip to feel more finance‑y */
+    background-image: radial-gradient(ellipse at top, hsl(var(--neutral-soft)) 0%, transparent 60%);
+    background-repeat: no-repeat;
+  }
+}

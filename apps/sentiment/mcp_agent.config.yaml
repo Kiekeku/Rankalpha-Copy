@@ -1,0 +1,35 @@
+$schema: schema/mcp-agent.config.schema.json
+
+execution_engine: asyncio
+
+mcp:
+  servers:
+    fetch:
+      command: "uvx"
+      args: ["mcp-server-fetch", "--ignore-robots-txt"]
+
+    g-search:
+      command: "npx"
+      args: ["-y", "g-search-mcp"]
+
+    filesystem:
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem","/data/company_reports", "/app/apps/sentiment"]
+
+    # Yahoo Finance (yfinance) MCP server
+    # Expect the repo to be present at apps/sentiment/ext/yahoo-finance-mcp (see README and Dockerfile)
+    yfinance:
+      command: "uv"
+      args: ["--directory", "ext/yahoo-finance-mcp", "run", "server.py"]
+
+    # SEC EDGAR MCP server (filings, XBRL facts, insider transactions)
+    edgar:
+      command: "uv"
+      args: ["--directory", "ext/sec-edgar-mcp", "run", "-m", "sec_edgar_mcp.server"]
+      # IMPORTANT: Replace the placeholder below with your actual SEC-compliant user agent
+      # in the format: "Your Name your-email@example.com"
+      env:
+        SEC_EDGAR_USER_AGENT: "Joined Bits brian_hoang@hotmail.com"
+
+openai:
+  default_model: gpt-5-mini

@@ -1,0 +1,12 @@
+[project]
+name = "rankalpha"
+version = "0.1.0"
+
+[tool.setuptools]
+packages = ["apps"]
+
+[tool.uv.workspace]
+members = [
+    "apps/api/api",
+]
+

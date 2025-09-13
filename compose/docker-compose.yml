@@ -1,0 +1,336 @@
+name: RankAlpha
+services:
+  api:
+    container_name: rankalpha_api
+    build: 
+      context: ./../
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      - database
+      - cache
+    env_file:
+      - ../env/${ENV:-local}/api.env
+    ports:
+      - "${API_PORT:-6080}:6080"
+    networks:
+      - rankalpha_backend_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+        
+  database:
+    container_name: rankalpha_database
+    build:
+      context: ../docker/database
+      dockerfile: Dockerfile
+    env_file:
+      - ../env/${ENV:-local}/database.env
+    ports:
+      - "${DB_PORT_HOST:-6543}:5432"
+    # ports:
+    #   - "6543:5432"
+    # environment:
+    #   - POSTGRES_USER=rankalpha
+    #   - POSTGRES_PASSWORD=rankalpha
+    #   - POSTGRES_DB=rankalpha
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../docker/database/init:/docker-entrypoint-initdb.d
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+
+  cache:
+    container_name: rankalpha_cache  
+    build:
+      context: ./../docker/cache
+      dockerfile: Dockerfile
+    env_file:
+      - ../env/${ENV:-local}/cache.env
+    ports:
+      - "${REDIS_PORT_HOST:-6379}:6379"
+    volumes:
+      - rankalpha_data:/data
+    restart: always
+    networks:
+      - rankalpha_backend_network
+      - airflow_net
+
+  flyway:
+    image: flyway/flyway:11.8 # community tag
+    depends_on:
+      - database
+    networks:
+      - rankalpha_backend_network
+    volumes:
+      - ../docker/database/sql/migrations:/flyway/sql:ro
+    env_file:
+      - ../env/${ENV:-local}/flyway.env
+    command: migrate
+    restart: "no"
+    # command: >
+    #   -url=jdbc:postgresql://database:5432/rankalpha
+    #   -connectRetries=10
+    #   -user=rankalpha
+    #   -password=rankalpha
+    #   -schemas=rankalpha
+    #   -cleanDisabled=false      
+    #   clean
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - 5672:5672
+      - 15672:15672
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+  
+  airflow-web:
+    build:
+      context: ../
+      dockerfile: infra/airflow/Dockerfile
+    container_name: airflow_web
+    env_file:
+      - ../env/${ENV:-local}/airflow.env
+    entrypoint: >
+      bash -c "
+        /opt/wait-for-it.sh database:5432 --timeout=60 --strict &&
+        airflow webserver
+      "
+    depends_on:
+      - airflow-scheduler
+      - database
+      - cache
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../infra/airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../infra/airflow/scripts/airflow_pw.json:/opt/airflow/scripts/airflow_pw.json
+      - ../env:/opt/rankalpha/env
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+    restart: on-failure
+
+  airflow-scheduler:
+    build:
+      context: ../
+      dockerfile: infra/airflow/Dockerfile
+    container_name: airflow_scheduler
+    ports:
+      - "8793:8793"
+    entrypoint: >
+      bash -c "
+        /opt/wait-for-it.sh database:5432 --timeout=60 --strict &&
+        /opt/wait-for-it.sh cache:6379 --timeout=60 --strict &&
+        airflow db migrate &&
+        airflow scheduler
+      "
+    depends_on:
+      - database
+      - cache
+    env_file:
+      - ../env/${ENV:-local}/airflow.env
+    volumes:
+      - ../infra/airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../env:/opt/rankalpha/env
+      - ../apps:/app/apps
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+
+  airflow-worker:
+    build:
+      context: ../
+      dockerfile: infra/airflow/Dockerfile
+    container_name: airflow_worker
+    env_file:
+      - ../env/${ENV:-local}/airflow.env
+    entrypoint: >
+      bash -c "
+        echo 'BROKER from ENV: $$AIRFLOW__CELERY__BROKER_URL' &&
+        env | grep BROKER &&
+        /opt/wait-for-it.sh database:5432 --timeout=60 --strict &&
+        /opt/wait-for-it.sh rabbitmq:5672 --timeout=60 --strict &&
+        airflow celery worker
+      "
+    depends_on:
+      - database
+      - airflow-web
+      - airflow-scheduler
+    volumes:
+      - ../infra/airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../env:/opt/rankalpha/env
+      - ../apps:/app/apps
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+    restart: on-failure
+
+  airflow-triggerer:
+    build:
+      context: ../
+      dockerfile: infra/airflow/Dockerfile
+    container_name: airflow_triggerer
+    depends_on:
+      - database
+      - rabbitmq
+      # - cache
+    env_file:
+      - ../env/${ENV:-local}/airflow.env
+    volumes:
+      - ../apps:/app/apps
+      - ../infra/airflow/dags:/opt/airflow/dags
+      - ../env:/opt/rankalpha/env
+    entrypoint: >
+      bash -c "
+        /opt/wait-for-it.sh database:5432 --timeout=60 --strict &&
+        /opt/wait-for-it.sh rabbitmq:5672 --timeout=60 --strict &&
+        /opt/wait-for-it.sh cache:6379 --timeout=60 --strict &&
+        airflow users create --username rankalpha --firstname Rank --lastname Alpha --role Admin --email rankalpha@example.com --password rankalpha || true &&
+        airflow triggerer
+      "
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+
+  airflow-init-dag:
+    build:
+      context: ../
+      dockerfile: infra/airflow/Dockerfile
+    container_name: airflow_init_dag
+    depends_on:
+      - airflow-scheduler
+      - airflow-web
+      - airflow-worker
+    env_file:
+      - ../env/${ENV:-local}/airflow.env
+    volumes:
+      - ../infra/airflow/scripts:/opt/airflow/scripts
+      - ../infra/airflow/dags:/opt/airflow/dags
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for Airflow to be ready...' &&
+        sleep 60 &&
+        echo 'Triggering initial DAG run...' &&
+        airflow dags trigger rankalpha_pipeline --run-id startup_$(date +%Y%m%d_%H%M%S) || true &&
+        echo 'Initial DAG triggered successfully'
+      "
+    networks:
+      - airflow_net
+      - rankalpha_backend_network
+    restart: "no"
+
+  ingestion:
+    build:
+      context: ../apps
+      dockerfile: ingestion/Dockerfile
+    image: rankalpha_ingestion
+    working_dir: /app
+    command: ["python", "apps/ingestion/main.py"]
+    depends_on:
+      - database
+    env_file:
+      - ../env/${ENV:-local}/ingestion.env
+    volumes:
+      - prices_data:/data/prices
+    networks:
+      - rankalpha_backend_network
+
+  scorer:
+    build:
+      context: ../apps
+      dockerfile: scorer/Dockerfile
+    image: rankalpha_scorer
+    working_dir: /app
+    command: ["python", "apps/scorer/main.py"]
+    depends_on:
+      - database
+      - ingestion
+    env_file:
+      - ../env/${ENV:-local}/ingestion.env
+    volumes:
+      - prices_data:/data/prices
+    networks:
+      - rankalpha_backend_network
+
+  sftp:
+    image: atmoz/sftp:latest
+    container_name: rankalpha_sftp   
+    ports:
+      - "2222:22"
+    volumes:
+      - prices_data:/home/foo/upload
+      - ../infra/sftp/sftp-init.sh:/etc/sftp.d/init.sh:ro
+    command: foo:secret:1001:1001
+
+  sentiment:
+    build:
+      context: ../apps
+      dockerfile: sentiment/Dockerfile
+    container_name: rankalpha_sentiment
+    env_file: 
+      - ../env/${ENV:-local}/sentiment.env
+    depends_on:
+      - database
+      - cache
+    volumes: 
+      - company_reports:/data/company_reports
+      - analysis_schedule:/data/analysis_schedule
+      - sentiment_logs:/data/logs
+    networks:
+      - rankalpha_backend_network
+    working_dir: /app/apps/sentiment
+    command: ["uv", "run", "main.py"]
+
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+    container_name: rankalpha_frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:6080
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - rankalpha_backend_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  rankalpha_data:
+    driver: local
+  postgres_data:
+    driver: local
+  prices_data:
+    driver: local
+  company_reports:
+    driver: local
+  analysis_schedule:
+    driver: local
+  sentiment_logs:
+    driver: local
+
+networks:
+  airflow_net:
+    driver: bridge
+  rankalpha_backend_network:
+    name: rankalpha_net
+    driver: bridge
+    # external: true
+
+      
+  
